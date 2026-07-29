@@ -141,19 +141,25 @@ def classify_taxes_and_charges(doc: SalesInvoice, tax_total: frappe._dict) -> fr
     for row in doc.get('taxes', []):
         is_vat = account_types.get(row.account_head) == 'Tax'
         if is_vat and row.charge_type == 'On Net Total':
-            # Already counted in the item-derived subtotal; skip
+            if target_subtotal is not None and not target_subtotal.tax_amount:
+                target_subtotal.tax_amount += row.tax_amount
+                tax_total.tax_amount = (tax_total.tax_amount or 0.0) + row.tax_amount
             continue
-        elif is_vat and row.charge_type == 'Actual':
+        elif is_vat:
             # VAT on a charge, posted separately to the VAT account -> fold into subtotal
             extra_vat += row.tax_amount
         else:
             # Non-VAT account -> document-level charge (principal, net)
             charge_total += row.tax_amount
             if target_subtotal is not None:
+                charge_reason_code = frappe.db.get_value(
+                    'Account', row.account_head, 'custom_zatca_charge_reason_code'
+                ) or 'ZZZ'
                 charge = AllowanceCharge(
                     tax_category=target_subtotal.tax_category,
                     charge_indicator='true',
                     allowance_charge_reason=row.description or row.account_head,
+                    allowance_charge_reason_code=charge_reason_code,
                     amount=row.tax_amount,
                 )
                 charges.append(dataclass_to_frappe_dict(charge))
