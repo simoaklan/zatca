@@ -911,7 +911,6 @@ class Einvoice:
         if self.sales_invoice_doc.doctype != 'Payment Entry':
             charge_info = classify_taxes_and_charges(self.sales_invoice_doc, tax_total)
         self.result['invoice']['tax_total'] = tax_total
-        self.result['invoice']['charge_total_amount'] = charge_info.charge_total
         allowance_charge = create_allowance_charge(self.sales_invoice_doc, tax_total)
         # SHAMS patch: append document-level charges (ChargeIndicator=true) to the allowance/charge list
         allowance_charge = allowance_charge + charge_info.charges
@@ -952,7 +951,7 @@ class Einvoice:
         self.result['invoice']['net_total'] = (
             self.result['invoice']['line_extension_amount']
             - self.result['invoice']['allowance_total_amount']
-            + self.result['invoice'].get('charge_total_amount', 0.0)  # SHAMS: charges land on the tax-exclusive side (BT-109)
+            + charge_info.charge_total  # SHAMS: charges land on the tax-exclusive side (BT-109)
         )
 
 
