@@ -21,8 +21,8 @@ from frappe.utils import flt
 from .service import get_right_fieldname, update_result
 from .prepayment_invoice.prepayment_invoice_factory import prepayment_invoice_factory_create
 
-from .tax import create_tax_categories, create_allowance_charge, create_tax_total
-
+#from .tax import create_tax_categories, create_allowance_charge, create_tax_total
+from .tax import create_tax_categories, create_allowance_charge, create_tax_total, classify_taxes_and_charges
 
 class Einvoice:
     def __init__(
@@ -900,9 +900,21 @@ class Einvoice:
         )
         self.append_to_item_lines(item_lines, is_tax_included, self.sales_invoice_doc)
         tax_categories = create_tax_categories(self.sales_invoice_doc, item_lines, is_tax_included)
+        # tax_total = create_tax_total(tax_categories)
+        # self.result['invoice']['tax_total'] = tax_total
+        # allowance_charge = create_allowance_charge(self.sales_invoice_doc, tax_total)
+        # self.result['invoice']['allowance_charge'] = allowance_charge
+        
         tax_total = create_tax_total(tax_categories)
+        # SHAMS patch: classify charges (shipping/COD) vs VAT and fold into tax_total
+        charge_info = frappe._dict({'charge_total': 0.0, 'charges': []})
+        if self.sales_invoice_doc.doctype != 'Payment Entry':
+            charge_info = classify_taxes_and_charges(self.sales_invoice_doc, tax_total)
         self.result['invoice']['tax_total'] = tax_total
+        self.result['invoice']['charge_total_amount'] = charge_info.charge_total
         allowance_charge = create_allowance_charge(self.sales_invoice_doc, tax_total)
+        # SHAMS patch: append document-level charges (ChargeIndicator=true) to the allowance/charge list
+        allowance_charge = allowance_charge + charge_info.charges
         self.result['invoice']['allowance_charge'] = allowance_charge
 
         # Add invoice total taxes and charges percentage field
@@ -921,12 +933,30 @@ class Einvoice:
                     self.sales_invoice_doc.total_taxes_and_charges
                 ) / (1 + tax_percent)
 
+        # self.result['invoice']['item_lines'] = item_lines
+        # self.result['invoice']['line_extension_amount'] = sum(it['amount'] for it in item_lines)
+        # self.compute_invoice_discount_amount()
+        # self.result['invoice']['net_total'] = (
+        #     self.result['invoice']['line_extension_amount'] - self.result['invoice']['allowance_total_amount']
+        # )
+
+        # SHAMS patch: BT-110 must equal the sum of categorized VAT (item VAT + charge VAT),
+        # NOT the raw Sales Invoice total_taxes_and_charges (which counts charge principals as tax).
+        if self.sales_invoice_doc.doctype != 'Payment Entry':
+            self.result['invoice']['total_taxes_and_charges'] = tax_total.tax_amount
+            self.result['invoice']['base_total_taxes_and_charges'] = tax_total.tax_amount
+
         self.result['invoice']['item_lines'] = item_lines
         self.result['invoice']['line_extension_amount'] = sum(it['amount'] for it in item_lines)
         self.compute_invoice_discount_amount()
         self.result['invoice']['net_total'] = (
-            self.result['invoice']['line_extension_amount'] - self.result['invoice']['allowance_total_amount']
+            self.result['invoice']['line_extension_amount']
+            - self.result['invoice']['allowance_total_amount']
+            + self.result['invoice'].get('charge_total_amount', 0.0)  # SHAMS: charges land on the tax-exclusive side (BT-109)
         )
+
+
+        
         if self.sales_invoice_doc.doctype == 'Payment Entry':
             if self.sales_invoice_doc.taxes[0].included_in_paid_amount:
                 self.result['invoice']['net_total'] = (
