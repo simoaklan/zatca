@@ -145,9 +145,7 @@
         {% endif %}
     </cac:PaymentMeans>
     {% endif %}
-    <!-- {% for allowance_charge in invoice.allowance_charge %}
-    <cac:AllowanceCharge>
-        <cbc:ChargeIndicator>false</cbc:ChargeIndicator> -->
+    
         {% for allowance_charge in invoice.allowance_charge %}
     <cac:AllowanceCharge>
         <cbc:ChargeIndicator>{{ allowance_charge.charge_indicator or 'false' }}</cbc:ChargeIndicator>
