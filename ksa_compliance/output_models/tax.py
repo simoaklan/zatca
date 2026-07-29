@@ -113,6 +113,62 @@ def create_tax_total(tax_categories: dict) -> dict:
         TaxTotal(tax_amount=tax_amount, taxable_amount=taxable_amount, tax_subtotal=tax_sub_totals)
     )
 
+def classify_taxes_and_charges(doc: SalesInvoice, tax_total: frappe._dict) -> frappe._dict:
+    """SHAMS patch: classify Sales Taxes and Charges rows into VAT vs. document-level charges.
+
+    A row is treated as VAT if its account_head has account_type == 'Tax'; otherwise it is a
+    document-level charge (e.g. shipping / COD on an Income account). VAT from charge rows is
+    folded into the matching tax subtotal; charge principals are aggregated into charge_total and
+    added to that subtotal's taxable_amount, and emitted as ChargeIndicator=true AllowanceCharges.
+
+    Charges are assumed already tax-exclusive (net). Staff split any tax-inclusive charge manually
+    before submitting, so no gross->net extraction happens here.
+    """
+    result = frappe._dict()
+    charge_total = 0.0
+    extra_vat = 0.0
+    charges = []
+
+    # Resolve account types once
+    account_types = {}
+    for row in doc.get('taxes', []):
+        if row.account_head not in account_types:
+            account_types[row.account_head] = frappe.db.get_value('Account', row.account_head, 'account_type')
+
+    # The single standard-rated subtotal built from item lines (index 0 in typical ZATCA flow)
+    target_subtotal = tax_total.tax_subtotal[0] if tax_total.tax_subtotal else None
+
+    for row in doc.get('taxes', []):
+        is_vat = account_types.get(row.account_head) == 'Tax'
+        if is_vat and row.charge_type == 'On Net Total':
+            # Already counted in the item-derived subtotal; skip
+            continue
+        elif is_vat and row.charge_type == 'Actual':
+            # VAT on a charge, posted separately to the VAT account -> fold into subtotal
+            extra_vat += row.tax_amount
+        else:
+            # Non-VAT account -> document-level charge (principal, net)
+            charge_total += row.tax_amount
+            if target_subtotal is not None:
+                charge = AllowanceCharge(
+                    tax_category=target_subtotal.tax_category,
+                    charge_indicator='true',
+                    allowance_charge_reason=row.description or row.account_head,
+                    amount=row.tax_amount,
+                )
+                charges.append(dataclass_to_frappe_dict(charge))
+
+    # Fold charge principals + charge VAT into the subtotal and header total
+    if target_subtotal is not None:
+        target_subtotal.taxable_amount += charge_total
+        target_subtotal.tax_amount += extra_vat
+        tax_total.taxable_amount = (tax_total.taxable_amount or 0.0) + charge_total
+        tax_total.tax_amount = (tax_total.tax_amount or 0.0) + extra_vat
+
+    result.charge_total = charge_total
+    result.charges = charges
+    result.recomputed_tax_amount = tax_total.tax_amount
+    return result
 
 def _get_amounts(tax_category: TaxCategoryByItems) -> frappe._dict:
     taxable_amount = 0
