@@ -145,9 +145,13 @@
         {% endif %}
     </cac:PaymentMeans>
     {% endif %}
-    {% for allowance_charge in invoice.allowance_charge %}
+    <!-- {% for allowance_charge in invoice.allowance_charge %}
     <cac:AllowanceCharge>
-        <cbc:ChargeIndicator>false</cbc:ChargeIndicator>
+        <cbc:ChargeIndicator>false</cbc:ChargeIndicator> -->
+        {% for allowance_charge in invoice.allowance_charge %}
+    <cac:AllowanceCharge>
+        <cbc:ChargeIndicator>{{ allowance_charge.charge_indicator or 'false' }}</cbc:ChargeIndicator>
+
         {% if allowance_charge.allowance_charge_reason_code %}
         <cbc:AllowanceChargeReasonCode>{{ allowance_charge.allowance_charge_reason_code }}</cbc:AllowanceChargeReasonCode>
         {% endif %}
@@ -202,6 +206,9 @@
         <cbc:TaxExclusiveAmount currencyID="{{ invoice.currency_code }}">{{ rounded(invoice.net_total, 2) }}</cbc:TaxExclusiveAmount>
         <cbc:TaxInclusiveAmount currencyID="{{ invoice.currency_code }}">{{ rounded(invoice.grand_total, 2) }}</cbc:TaxInclusiveAmount>
         <cbc:AllowanceTotalAmount currencyID="{{ invoice.currency_code }}">{{ rounded(invoice.allowance_total_amount, 2) }}</cbc:AllowanceTotalAmount>
+        {% if invoice.charge_total_amount %}
+        <cbc:ChargeTotalAmount currencyID="{{ invoice.currency_code }}">{{ rounded(invoice.charge_total_amount, 2) }}</cbc:ChargeTotalAmount>
+        {% endif %}
         {% if prepayment_invoice %}
             <cbc:PrepaidAmount currencyID="{{prepayment_invoice.currency}}" >{{ rounded(prepayment_invoice.prepaid_amount, 2)}}</cbc:PrepaidAmount>
         {% endif %}
