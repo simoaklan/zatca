@@ -469,9 +469,15 @@ class SalesInvoiceAdditionalFields(Document):
         return integration_status
 
     def _compute_sum_of_charges(self, taxes: list) -> float:
+        # SHAMS patch: BT-99 is the sum of DOCUMENT-LEVEL CHARGES only (e.g. shipping/COD on
+        # non-VAT accounts). Rows whose account is a VAT account (account_type == 'Tax') are tax,
+        # not charges, and must be excluded here or BR-CO-12 fails.
         total = 0.0
         if taxes:
             for item in taxes:
+                account_type = frappe.db.get_value('Account', item.account_head, 'account_type')
+                if account_type == 'Tax':
+                    continue
                 total = total + item.tax_amount
         return total
 
