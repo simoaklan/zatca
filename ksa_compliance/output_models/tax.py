@@ -142,15 +142,17 @@ def classify_taxes_and_charges(doc: SalesInvoice, tax_total: frappe._dict) -> fr
         is_vat = account_types.get(row.account_head) == 'Tax'
         if is_vat and row.charge_type == 'On Net Total':
             if target_subtotal is not None and not target_subtotal.tax_amount:
-                target_subtotal.tax_amount += row.tax_amount
-                tax_total.tax_amount = (tax_total.tax_amount or 0.0) + row.tax_amount
+                target_subtotal.tax_amount += abs(row.tax_amount)
+                tax_total.tax_amount = (tax_total.tax_amount or 0.0) + abs(row.tax_amount)
             continue
         elif is_vat:
             # VAT on a charge, posted separately to the VAT account -> fold into subtotal
-            extra_vat += row.tax_amount
+            extra_vat += abs(row.tax_amount)
         else:
-            # Non-VAT account -> document-level charge (principal, net)
-            charge_total += row.tax_amount
+            # Non-VAT account -> document-level charge (principal, net).
+            # abs() so returns (negative rows) emit positive amounts; the credit-note-ness
+            # is carried by InvoiceTypeCode 381, not by sign (matches the rest of the app).
+            charge_total += abs(row.tax_amount)
             if target_subtotal is not None:
                 charge_reason_code = frappe.db.get_value(
                     'Account', row.account_head, 'custom_zatca_charge_reason_code'
@@ -160,7 +162,7 @@ def classify_taxes_and_charges(doc: SalesInvoice, tax_total: frappe._dict) -> fr
                     charge_indicator='true',
                     allowance_charge_reason=row.description or row.account_head,
                     allowance_charge_reason_code=charge_reason_code,
-                    amount=row.tax_amount,
+                    amount=abs(row.tax_amount),
                 )
                 charges.append(dataclass_to_frappe_dict(charge))
 
