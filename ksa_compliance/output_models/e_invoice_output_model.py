@@ -148,13 +148,13 @@ class Einvoice:
             parent='invoice',
         )
 
-        # Allowance on invoice should be only the document level allowance without items allowances.
-        self.get_float_value(
-            field_name='discount_amount',
-            source_doc=self.sales_invoice_doc,
-            xml_name='allowance_total_amount',
-            parent='invoice',
-        )
+        # # Allowance on invoice should be only the document level allowance without items allowances.
+        # self.get_float_value(
+        #     field_name='discount_amount',
+        #     source_doc=self.sales_invoice_doc,
+        #     xml_name='allowance_total_amount',
+        #     parent='invoice',
+        # )
         # self.compute_invoice_discount_amount()
         self.get_e_invoice_details(invoice_type)
 
@@ -905,6 +905,17 @@ class Einvoice:
         # allowance_charge = create_allowance_charge(self.sales_invoice_doc, tax_total)
         # self.result['invoice']['allowance_charge'] = allowance_charge
         
+        # tax_total = create_tax_total(tax_categories)
+        # # SHAMS patch: classify charges (shipping/COD) vs VAT and fold into tax_total
+        # charge_info = frappe._dict({'charge_total': 0.0, 'charges': []})
+        # if self.sales_invoice_doc.doctype != 'Payment Entry':
+        #     charge_info = classify_taxes_and_charges(self.sales_invoice_doc, tax_total)
+        # self.result['invoice']['tax_total'] = tax_total
+        # allowance_charge = create_allowance_charge(self.sales_invoice_doc, tax_total)
+        # # SHAMS patch: append document-level charges (ChargeIndicator=true) to the allowance/charge list
+        # allowance_charge = allowance_charge + charge_info.charges
+        # self.result['invoice']['allowance_charge'] = allowance_charge
+
         tax_total = create_tax_total(tax_categories)
         # SHAMS patch: classify charges (shipping/COD) vs VAT and fold into tax_total
         charge_info = frappe._dict({'charge_total': 0.0, 'charges': []})
@@ -915,6 +926,13 @@ class Einvoice:
         # SHAMS patch: append document-level charges (ChargeIndicator=true) to the allowance/charge list
         allowance_charge = allowance_charge + charge_info.charges
         self.result['invoice']['allowance_charge'] = allowance_charge
+        # SHAMS patch: BT-107 = sum of ALLOWANCE lines only (charge_indicator == 'false'),
+        # so BT-107 == Sum(BT-92) by construction and BR-CO-11 always holds. Charges excluded.
+        self.result['invoice']['allowance_total_amount'] = sum(
+            abs(ac.get('amount') or 0.0)
+            for ac in allowance_charge
+            if ac.get('charge_indicator') == 'false'
+        )
 
         # Add invoice total taxes and charges percentage field
         self.result['invoice']['total_taxes_and_charges_percent'] = sum(
@@ -947,7 +965,12 @@ class Einvoice:
 
         self.result['invoice']['item_lines'] = item_lines
         self.result['invoice']['line_extension_amount'] = sum(it['amount'] for it in item_lines)
-        self.compute_invoice_discount_amount()
+        # SHAMS patch: do NOT call compute_invoice_discount_amount(). BT-107 was already set
+        # above from the sum of the allowance lines (BT-92). line_extension_amount is the
+        # pre-discount total (sum of item 'amount'); subtracting the allowance gives the correct
+        # tax-exclusive base (BT-109). Calling compute_invoice_discount_amount() here would
+        # overwrite allowance_total_amount with a figure that does not match the allowance lines,
+        # breaking BR-CO-11 / BR-CO-13.
         self.result['invoice']['net_total'] = (
             self.result['invoice']['line_extension_amount']
             - self.result['invoice']['allowance_total_amount']
