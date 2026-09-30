@@ -150,6 +150,10 @@ def classify_taxes_and_charges(doc: SalesInvoice, tax_total: frappe._dict) -> fr
             extra_vat += abs(row.tax_amount)
         else:
             # Non-VAT account -> document-level charge (principal, net).
+            # Skip zero-amount charge rows entirely: emitting a charge line with amount 0
+            # (with no matching ChargeTotalAmount) trips BR-CO-12.
+            if abs(row.tax_amount) < 0.005:
+                continue
             # abs() so returns (negative rows) emit positive amounts; the credit-note-ness
             # is carried by InvoiceTypeCode 381, not by sign (matches the rest of the app).
             charge_total += abs(row.tax_amount)
